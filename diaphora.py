@@ -306,7 +306,9 @@ class CBinDiff:
                         constants_count integer,
                         segment_rva text,
                         assembly_addrs text,
-                        kgh_hash text) """
+                        kgh_hash text,
+                        safe_embedding text) 
+                        """
     cur.execute(sql)
 
     sql = """ create table if not exists program (
@@ -584,10 +586,10 @@ class CBinDiff:
                                     tarjan_topological_sort, strongly_connected_spp,
                                     clean_assembly, clean_pseudo, mnemonics_spp, switches,
                                     function_hash, bytes_sum, md_index, constants,
-                                    constants_count, segment_rva, assembly_addrs, kgh_hash)
+                                    constants_count, segment_rva, assembly_addrs, kgh_hash, safe_embedding)
                                 values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
 
     try:
       cur.execute(sql, new_props)
@@ -617,6 +619,8 @@ class CBinDiff:
     if not self.function_summaries_only:
       # The last 2 fields are basic_blocks_data & bb_relations
       bb_data, bb_relations = props[len(props)-2:]
+      #bb_data = props[-3]
+      #bb_relations = props[-2]
       instructions_ids = {}
       sql = """insert into main.instructions (address, mnemonic, disasm,
                                               comment1, comment2, name,

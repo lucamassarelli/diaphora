@@ -26,6 +26,7 @@ import difflib
 import sqlite3
 import traceback
 from hashlib import md5
+import binascii
 
 import diaphora
 
@@ -37,6 +38,7 @@ from others.tarjan_sort import strongly_connected_components, robust_topological
 
 from jkutils.factor import primesbelow as primes
 from jkutils.graph_hashes import CKoretKaramitasHash
+from safe.SAFE import SAFE
 
 import idaapi
 from idc import *
@@ -1423,6 +1425,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
     bb_degree = {}
     bb_edges = []
     constants = []
+    functions_asm = ""
 
     # The callees will be calculated later
     callees = list()
@@ -1453,6 +1456,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
         mnem = GetMnem(x)
         disasm = GetDisasm(x)
         size += ItemSize(x)
+        functions_asm += str(binascii.hexlify(disasm))
         instructions += 1
 
         if mnem in cpu_ins_list:
@@ -1717,6 +1721,10 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
     kgh = CKoretKaramitasHash()
     kgh_hash = kgh.calculate(f)
 
+    # Computing safe embeddings
+    safe = SAFE("http://35.233.53.43:8500/v1/models/safe:predict")
+    safe_embedding = safe.get_safe_embedding(functions_asm)
+
     rva = f - self.get_base_address()
     l = (name, nodes, edges, indegree, outdegree, size, instructions, mnems, names,
              proto, cc, prime, f, comment, true_name, bytes_hash, pseudo, pseudo_lines,
@@ -1724,7 +1732,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
              pseudo_hash2, pseudo_hash3, len(strongly_connected), loops, rva, bb_topological,
              strongly_connected_spp, clean_assembly, clean_pseudo, mnemonics_spp, switches,
              function_hash, bytes_sum, md_index, constants, len(constants), seg_rva,
-             assembly_addrs, kgh_hash,
+             assembly_addrs, kgh_hash, safe_embedding,
              callers, callees,
              basic_blocks_data, bb_relations)
 
@@ -1782,7 +1790,8 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
       d["callers"],
       d["callees"],
       d["basic_blocks_data"],
-      d["bb_relations"])
+      d["bb_relations"],
+      d["safe_embedding"])
     return l
 
   def create_function_dictionary(self, l):
@@ -1792,7 +1801,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
     pseudo_hash2, pseudo_hash3, strongly_connected_size, loops, rva, bb_topological,
     strongly_connected_spp, clean_assembly, clean_pseudo, mnemonics_spp, switches,
     function_hash, bytes_sum, md_index, constants, constants_size, seg_rva,
-    assembly_addrs, kgh_hash, callers, callees, basic_blocks_data, bb_relations) = l
+    assembly_addrs, kgh_hash, callers, callees, basic_blocks_data, bb_relations, safe_embedding) = l
     d = dict(
           name = name,
           nodes = nodes,
@@ -1839,7 +1848,8 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
           callers = callers,
           callees = callees,
           basic_blocks_data = basic_blocks_data,
-          bb_relations = bb_relations)
+          bb_relations = bb_relations,
+          safe_embedding = safe_embedding)
     return d
 
   def get_base_address(self):
