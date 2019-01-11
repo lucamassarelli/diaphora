@@ -33,6 +33,9 @@ from jkutils.kfuzzy import CKoretFuzzyHashing
 from jkutils.factor import (FACTORS_CACHE, difference, difference_ratio,
                             primesbelow as primes)
 
+from safe.SAFE import ProgramEmbeddingMatrix
+from safe.SAFE import SimilarityFinder
+
 try:
   import idaapi
   is_ida = True
@@ -1424,6 +1427,55 @@ class CBinDiff:
       self.matched2.add(name2)
     cur.close()
 
+
+  def add_matches_from_SAFE(self, sql1, sql2, choose):
+    #if self.all_functions_matched():
+    #    return
+
+    matches = []
+    i = 0
+    t = time.time()
+    cur = self.db_cursor()
+
+    p1 = ProgramEmbeddingMatrix()
+    p2 = ProgramEmbeddingMatrix()
+
+    q = cur.execute(sql1)
+    res1 = q.fetchall()
+    for f in res1:
+        #if f["name1"] in self.matched1:
+        #    continue
+        p1.add_embedding(f["safe_embedding"])
+
+    q = cur.execute(sql2)
+    res2 = q.fetchall()
+    for f in res2:
+        #if f["name2"] in self.matched2:
+        #    continue
+        p2.add_embedding(f["safe_embedding"])
+
+    s = SimilarityFinder(p1, p2)
+    pairs, scores = s.find_similar(0.95)
+
+    for pair, score in zip(pairs, scores):
+        ea = str(res1[pair[0]]["ea"])
+        name1 = res1[pair[0]]["name1"]
+        ea2 = str(res2[pair[1]]["ea2"])
+        name2 = res2[pair[1]]["name2"]
+        desc = res1[pair[0]]["description"]
+        bb1 = int(res1[pair[0]]["bb1"])
+        bb2 = int(res2[pair[1]]["bb2"])
+
+        choose.add_item(CChooser.Item(ea, name1, ea2, name2, desc, score, bb1, bb2))
+        self.matched1.add(name1)
+        self.matched2.add(name2)
+
+    cur.close()
+
+
+
+
+
   def search_small_differences(self, choose):
     cur = self.db_cursor()
     
@@ -2203,6 +2255,25 @@ class CBinDiff:
     log_refresh("Finding with heuristic 'Strongly connected components SPP and names'")
     self.add_matches_from_query_ratio_max(sql, self.partial_chooser, None, 0.49)
 
+
+    sql1 = """ select f.address ea, f.name name1,
+                     'SAFE Embedding' description,
+                     f.nodes bb1, safe_embedding safe_embedding
+                from functions f
+                where f.instructions > 99
+                 """ + postfix
+    sql2 = """ select df.address ea2, df.name name2,
+                     'SAFE Embedding' description,
+                     df.nodes bb2, df.safe_embedding safe_embedding
+                from diff.functions df
+                where df.instructions > 99
+                 """ + postfix
+
+    log_refresh("Finding with SAFE'")
+    self.add_matches_from_SAFE(sql1, sql2, self.partial_chooser)
+
+
+
   def find_brute_force(self):
     cur = self.db_cursor()
     sql = "create temp table unmatched(id integer null primary key, address, main)"
@@ -2540,6 +2611,20 @@ class CBinDiff:
                     and f.cyclomatic_complexity >= 50""" + postfix
       log_refresh("Finding with heuristic 'Same high complexity'")
       self.add_matches_from_query_ratio(sql, self.partial_chooser, choose)
+
+      sql = """ select f.address ea, f.name name1, df.address ea2, df.name name2,
+                      'SAFE Embeddings' description,
+                      f.pseudocode pseudo1, df.pseudocode pseudo2,
+                      f.assembly asm1, df.assembly asm2,
+                      f.pseudocode_primes pseudo_primes1, df.pseudocode_primes pseudo_primes2,
+                      f.nodes bb1, df.nodes bb2,
+                      f.safe_embedding emb1, df.safe_embedding emb2
+                      cast(f.md_index as real) md1, cast(df.md_index as real) md2
+                 from functions f,
+                      diff.functions df
+                """ + postfix
+      log_refresh("Finding with safe embeddings")
+      self.add_matches_from_query_ratio_max(sql, self.partial_chooser, None, 0.49)
 
   def find_unmatched(self):
     cur = self.db_cursor()

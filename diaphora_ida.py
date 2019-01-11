@@ -1721,9 +1721,12 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
     kgh = CKoretKaramitasHash()
     kgh_hash = kgh.calculate(f)
 
-    # Computing safe embeddings
-    safe = SAFE("http://35.233.53.43:8500/v1/models/safe:predict")
-    safe_embedding = safe.get_safe_embedding(functions_asm)
+    # Computing safe embeddings if num block > 2
+    if instructions > 99:
+      safe = SAFE("http://35.233.53.43:8500/v1/models/safe:predict")
+      safe_embedding = safe.get_safe_embedding(functions_asm, idaapi.get_inf_structure())
+    else:
+      safe_embedding = json.dumps([])
 
     rva = f - self.get_base_address()
     l = (name, nodes, edges, indegree, outdegree, size, instructions, mnems, names,

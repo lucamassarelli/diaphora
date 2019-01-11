@@ -5,6 +5,8 @@ import requests
 import numpy as np
 import json
 import os
+import sqlite3
+from sklearn.metrics.pairwise import cosine_similarity
 
 class InstructionsConverter:
 
@@ -104,12 +106,24 @@ class SAFE:
         inst = inst.replace(" ", "_")
         return str(inst)
 
-    def filter_asm_and_return_instruction_list(self, address, asm, symbols, arch, mode, API):
-        binary = binascii.unhexlify(asm)
-        if arch == capstone.CS_ARCH_ARM:
+    def filter_asm_and_return_instruction_list(self, address, asm, symbols, info, API):
+
+        if info.is_64bit():
+            mode = capstone.CS_MODE_64
+        elif info.is_32bit():
+            mode = capstone.CS_MODE_32
+
+        if info.procName == "arm":
             md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM)
-        else:
-            md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+        elif info.procName == "metapc":
+            md = capstone.Cs(capstone.CS_ARCH_X86, mode)
+
+
+        print 'Processor: {}, {} bit'.format(info.procName, str(mode*8))
+        # Result: Processor: mipsr, 32bit, big endian
+
+        binary = binascii.unhexlify(asm)
+
         md.detail = True
         insns = []
         cap_insns = []
@@ -118,8 +132,8 @@ class SAFE:
             cap_insns.append(i)
         return insns
 
-    def get_safe_embedding(self, fcn_asm):
-        insns = self.filter_asm_and_return_instruction_list(0, fcn_asm, [], capstone.CS_ARCH_X86, capstone.CS_MODE_64, [])
+    def get_safe_embedding(self, fcn_asm, ida_info):
+        insns = self.filter_asm_and_return_instruction_list(0, fcn_asm, [], ida_info, [])
         prepappend = 'X_'
         instructions = [prepappend + x for x in insns]
         __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -134,3 +148,66 @@ class SAFE:
             return json.dumps(embeddings["outputs"][0])
         else:
             raise ValueError("Something bad happened when computing SAFE embeddings")
+
+
+class ProgramEmbeddingMatrix:
+
+    def __init__(self):
+        self.embedding_matrix = np.zeros([0, 100])
+
+    def add_embedding(self, embedding):
+        embedding = json.loads(embedding)
+        self.embedding_matrix = np.vstack((self.embedding_matrix, np.asmatrix(embedding)))
+
+
+class SimilarityFinder:
+
+    def __init__(self, program_1, program_2):
+        self.program_1 = program_1
+        self.program_2 = program_2
+
+    def find_similar(self, threshold):
+        #dot = np.tensordot(self.program_1.embedding_matrix, self.program_2.embedding_matrix.T, axes=1)
+        dot = cosine_similarity(self.program_1.embedding_matrix, self.program_2.embedding_matrix)
+        max_axis_0 = np.amax(dot, axis=1)
+        max_axis_1 = np.amax(dot, axis=0)
+        similar = []
+        score = []
+        for i in range(0, dot.shape[0]):
+            for j in range(0, dot.shape[1]):
+                if max_axis_0[i] == max_axis_1[j] and max_axis_0[i] > threshold:
+                    similar.append((i,j))
+                    score.append(max_axis_0[i])
+                    break
+        return similar, score
+
+
+if __name__ == '__main__':
+
+    conn = sqlite3.connect("../db1.sqlite")
+    conn.text_factory = str
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute('attach "../db2.sqlite" as diff')
+
+    p1 = ProgramEmbeddingMatrix()
+    p2 = ProgramEmbeddingMatrix()
+
+    sql1 = "select f.safe_embedding safe_embedding from functions f"
+    q = cur.execute(sql1)
+    res1 = q.fetchall()
+    for f in res1:
+        p1.add_embedding(f["safe_embedding"])
+
+    sql1 = "select safe_embedding safe_embedding from diff.functions"
+    q = cur.execute(sql1)
+    res2 = q.fetchall()
+    for f in res2:
+        p2.add_embedding(f["safe_embedding"])
+
+    s = SimilarityFinder(p1, p2)
+    sim = s.find_similar(0.5)
+    print(sim)
+
+
+
