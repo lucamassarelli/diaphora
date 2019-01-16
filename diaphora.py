@@ -234,7 +234,9 @@ class CBinDiff:
     # Ignore any and all function names for the 'Same name' heuristic?
     self.ignore_all_names = True
     # Ignore small functions?
-    self.ignore_small_functions = False
+    self.ignore_small_functions = True
+    # Only for exp
+    self.ignore_best_match = True
     ####################################################################
 
   def __del__(self):
@@ -1432,9 +1434,6 @@ class CBinDiff:
     if self.all_functions_matched():
        return
 
-    matches = []
-    i = 0
-    t = time.time()
     cur = self.db_cursor()
 
     p1 = ProgramEmbeddingMatrix()
@@ -1455,7 +1454,7 @@ class CBinDiff:
         p2.add_embedding(f["safe_embedding"])
 
     s = SimilarityFinder(p1, p2)
-    pairs, scores = s.find_similar(0.8)
+    pairs, scores = s.find_similar(0.7)
 
     for pair, score in zip(pairs, scores):
         ea = str(res1[pair[0]]["ea"])
@@ -2258,15 +2257,15 @@ class CBinDiff:
 
     sql1 = """ select f.address ea, f.name name1,
                      'SAFE Embedding' description,
-                     f.nodes bb1, safe_embedding safe_embedding
-                from functions f
-                where f.instructions > 5
+                     f.nodes bb1, f.safe_embedding safe_embedding
+                from functions f, diff.functions df
+                where 1 
                  """ + postfix
     sql2 = """ select df.address ea2, df.name name2,
                      'SAFE Embedding' description,
                      df.nodes bb2, df.safe_embedding safe_embedding
-                from diff.functions df
-                where df.instructions > 5
+                from functions f, diff.functions df
+                where 1
                  """ + postfix
 
     log_refresh("Finding similarity with SAFE'")
@@ -2756,8 +2755,9 @@ class CBinDiff:
         self.check_callgraph()
 
         # Find the unmodified functions
-        log_refresh("Finding best matches...")
-        self.find_equal_matches()
+        if not self.ignore_best_match:
+          log_refresh("Finding best matches...")
+          self.find_equal_matches()
 
         # Find the modified functions
         log_refresh("Finding partial matches")
