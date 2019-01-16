@@ -42,7 +42,7 @@ class FunctionNormalizer:
         self.max_instructions = max_instruction
 
     def normalize(self, f):
-        f = np.asarray(f[0:self.max_instructions])
+        f = np.asarray(f[0:self.max_instructions], dtype=np.int32)
         length = f.shape[0]
         if f.shape[0] < self.max_instructions:
             f = np.pad(f, (0, self.max_instructions - f.shape[0]), mode='constant')
@@ -149,6 +149,28 @@ class SAFE:
         else:
             raise ValueError("Something bad happened when computing SAFE embeddings")
 
+    def get_safe_embeddings(self, fcns_asm, ida_info):
+        fncs = []
+        __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+        converter = InstructionsConverter(os.path.join(__location__, "word2id.json"))
+        for fcn_asm in fcns_asm:
+            insns = self.filter_asm_and_return_instruction_list(0, fcn_asm, [], ida_info, [])
+            prepappend = 'X_'
+            instructions = [prepappend + x for x in insns]
+            fncs.append(converter.convert_to_ids(instructions))
+        normalizer = FunctionNormalizer(150)
+        instructions, lenghts = normalizer.normalize_functions(fncs)
+        payload = {"signature_name": "safe", "inputs": {"instruction": instructions, "lenghts": lenghts}}
+        r = requests.post(self.SERVING_URL, data=json.dumps(payload))
+        embeddings = json.loads(r.text)
+        ret = []
+        if "outputs" in embeddings:
+            for emb in embeddings["outputs"]:
+                ret.append(json.dumps(emb))
+        else:
+            raise ValueError("Something bad happened when computing SAFE embeddings")
+        return ret
+
 
 class ProgramEmbeddingMatrix:
 
@@ -156,9 +178,11 @@ class ProgramEmbeddingMatrix:
         self.embedding_matrix = np.zeros([0, 100])
 
     def add_embedding(self, embedding):
-        embedding = json.loads(embedding)
-        self.embedding_matrix = np.vstack((self.embedding_matrix, np.asmatrix(embedding)))
-
+        try:
+            embedding = json.loads(embedding)
+            self.embedding_matrix = np.vstack((self.embedding_matrix, np.asmatrix(embedding)))
+        except:
+            pass
 
 class SimilarityFinder:
 
@@ -169,16 +193,15 @@ class SimilarityFinder:
     def find_similar(self, threshold):
         #dot = np.tensordot(self.program_1.embedding_matrix, self.program_2.embedding_matrix.T, axes=1)
         dot = cosine_similarity(self.program_1.embedding_matrix, self.program_2.embedding_matrix)
-        max_axis_0 = np.amax(dot, axis=1)
-        max_axis_1 = np.amax(dot, axis=0)
+        max = np.amax(dot, axis=1)
+        argmax = np.argmax(dot, axis=1)
         similar = []
         score = []
         for i in range(0, dot.shape[0]):
-            for j in range(0, dot.shape[1]):
-                if max_axis_0[i] == max_axis_1[j] and max_axis_0[i] > threshold:
-                    similar.append((i,j))
-                    score.append(max_axis_0[i])
-                    break
+            if max[i] > threshold:
+                similar.append((i, argmax[i]))
+                score.append(max[i])
+                break
         return similar, score
 
 

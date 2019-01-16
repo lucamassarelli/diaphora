@@ -1429,8 +1429,8 @@ class CBinDiff:
 
 
   def add_matches_from_SAFE(self, sql1, sql2, choose):
-    #if self.all_functions_matched():
-    #    return
+    if self.all_functions_matched():
+       return
 
     matches = []
     i = 0
@@ -1455,7 +1455,7 @@ class CBinDiff:
         p2.add_embedding(f["safe_embedding"])
 
     s = SimilarityFinder(p1, p2)
-    pairs, scores = s.find_similar(0.95)
+    pairs, scores = s.find_similar(0.8)
 
     for pair, score in zip(pairs, scores):
         ea = str(res1[pair[0]]["ea"])
@@ -2260,16 +2260,16 @@ class CBinDiff:
                      'SAFE Embedding' description,
                      f.nodes bb1, safe_embedding safe_embedding
                 from functions f
-                where f.instructions > 99
+                where f.instructions > 5
                  """ + postfix
     sql2 = """ select df.address ea2, df.name name2,
                      'SAFE Embedding' description,
                      df.nodes bb2, df.safe_embedding safe_embedding
                 from diff.functions df
-                where df.instructions > 99
+                where df.instructions > 5
                  """ + postfix
 
-    log_refresh("Finding with SAFE'")
+    log_refresh("Finding similarity with SAFE'")
     self.add_matches_from_SAFE(sql1, sql2, self.partial_chooser)
 
 

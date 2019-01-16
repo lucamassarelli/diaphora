@@ -642,6 +642,7 @@ class CIDABinDiff(diaphora.CBinDiff):
   def do_export(self, crashed_before = False):
     callgraph_primes = 1
     callgraph_all_primes = {}
+    fcns_asm = []
     func_list = list(Functions(self.min_ea, self.max_ea))
     total_funcs = len(func_list)
     t = time.time()
@@ -686,6 +687,7 @@ class CIDABinDiff(diaphora.CBinDiff):
       props = self.read_function(func)
       if props == False:
         continue
+      fcns_asm.append(props[42])
 
       ret = props[11]
       callgraph_primes *= decimal.Decimal(ret)
@@ -702,6 +704,12 @@ class CIDABinDiff(diaphora.CBinDiff):
         self.db.execute("PRAGMA synchronous = OFF")
         self.db.execute("PRAGMA journal_mode = MEMORY")
         self.db.execute("BEGIN transaction")
+
+    replace_wait_box("Computing SAFE Embeddings")
+    safe = SAFE("http://35.233.53.43:8500/v1/models/safe:predict")
+    embeddings = safe.get_safe_embeddings(fcns_asm, idaapi.get_inf_structure())
+    for func, emb in zip(func_list, embeddings):
+      self.db.execute("UPDATE functions set safe_embedding=? WHERE address=?",(emb, func))
 
     md5sum = GetInputFileMD5()
     self.save_callgraph(str(callgraph_primes), json.dumps(callgraph_all_primes), md5sum)
@@ -1425,7 +1433,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
     bb_degree = {}
     bb_edges = []
     constants = []
-    functions_asm = ""
+    safe_asm = ""
 
     # The callees will be calculated later
     callees = list()
@@ -1456,7 +1464,8 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
         mnem = GetMnem(x)
         disasm = GetDisasm(x)
         size += ItemSize(x)
-        functions_asm += str(binascii.hexlify(disasm))
+        ins = idautils.DecodeInstruction(x)
+        safe_asm += str(binascii.hexlify(idc.get_bytes(x, ins.size)))
         instructions += 1
 
         if mnem in cpu_ins_list:
@@ -1722,11 +1731,13 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
     kgh_hash = kgh.calculate(f)
 
     # Computing safe embeddings if num block > 2
-    if instructions > 99:
-      safe = SAFE("http://35.233.53.43:8500/v1/models/safe:predict")
-      safe_embedding = safe.get_safe_embedding(functions_asm, idaapi.get_inf_structure())
-    else:
-      safe_embedding = json.dumps([])
+    #if instructions > 99:
+    #  safe = SAFE("http://35.233.53.43:8500/v1/models/safe:predict")
+    #  safe_embedding = safe.get_safe_embedding(functions_asm, idaapi.get_inf_structure())
+    #else:
+    #  safe_embedding = json.dumps([])
+
+    safe_embedding = json.dumps([])
 
     rva = f - self.get_base_address()
     l = (name, nodes, edges, indegree, outdegree, size, instructions, mnems, names,
@@ -1735,7 +1746,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
              pseudo_hash2, pseudo_hash3, len(strongly_connected), loops, rva, bb_topological,
              strongly_connected_spp, clean_assembly, clean_pseudo, mnemonics_spp, switches,
              function_hash, bytes_sum, md_index, constants, len(constants), seg_rva,
-             assembly_addrs, kgh_hash, safe_embedding,
+             assembly_addrs, kgh_hash, safe_asm,
              callers, callees,
              basic_blocks_data, bb_relations)
 
@@ -1794,7 +1805,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
       d["callees"],
       d["basic_blocks_data"],
       d["bb_relations"],
-      d["safe_embedding"])
+      d["safe_asm"])
     return l
 
   def create_function_dictionary(self, l):
@@ -1804,7 +1815,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
     pseudo_hash2, pseudo_hash3, strongly_connected_size, loops, rva, bb_topological,
     strongly_connected_spp, clean_assembly, clean_pseudo, mnemonics_spp, switches,
     function_hash, bytes_sum, md_index, constants, constants_size, seg_rva,
-    assembly_addrs, kgh_hash, callers, callees, basic_blocks_data, bb_relations, safe_embedding) = l
+    assembly_addrs, kgh_hash, safe_asm, callers, callees, basic_blocks_data, bb_relations) = l
     d = dict(
           name = name,
           nodes = nodes,
@@ -1852,7 +1863,7 @@ or selecting Edit -> Plugins -> Diaphora - Show results""")
           callees = callees,
           basic_blocks_data = basic_blocks_data,
           bb_relations = bb_relations,
-          safe_embedding = safe_embedding)
+          safe_asm = safe_asm)
     return d
 
   def get_base_address(self):
